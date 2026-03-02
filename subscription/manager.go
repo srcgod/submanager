@@ -69,6 +69,13 @@ func (s *SubscriptionManager[K]) AddClient(key K, sck WSclient) (bool, error) {
 	return true, nil
 }
 
+func (m *SubscriptionManager[K]) ClientSubs(key K) (map[string]WSclient, error) {
+	if _, ok := m.subs[key]; !ok {
+		return nil, fmt.Errorf("Subscriptions is empty: %w", key)
+	}
+	return m.subs[key], nil
+}
+
 func (m *SubscriptionManager[K]) RemoveClient(clientID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -12,20 +12,20 @@ type SubscriptionManager[K comparable] struct {
 	mu         sync.RWMutex
 	subs       map[K]map[string]WSclient
 	clientSubs map[string]map[K]struct{}
-	natsSubs   map[K]*nats.Subscription
+	natsSubs   map[K][]*nats.Subscription
 	sub        *Subscriber
-	topicFunc  func(K) string
+	topicsFunc func(K) []string
 	handler    nats.MsgHandler
 	logger     *logrus.Logger // TODO: remove logger
 }
 
-func NewSubscriptionManager[K comparable](topicFinc func(K) string, handler nats.MsgHandler, sub *Subscriber) *SubscriptionManager[K] {
+func NewSubscriptionManager[K comparable](topicsFunc func(K) []string, handler nats.MsgHandler, sub *Subscriber) *SubscriptionManager[K] {
 	return &SubscriptionManager[K]{
 		subs:       map[K]map[string]WSclient{},
 		clientSubs: make(map[string]map[K]struct{}),
-		natsSubs:   make(map[K]*nats.Subscription),
+		natsSubs:   make(map[K][]*nats.Subscription),
 		sub:        sub,
-		topicFunc:  topicFinc,
+		topicsFunc: topicsFunc,
 		handler:    handler,
 		logger:     logrus.New(),
 	}
@@ -36,18 +36,23 @@ func (s *SubscriptionManager[K]) AddClient(key K, sck WSclient) (bool, error) {
 	defer s.mu.Unlock()
 
 	if len(s.subs[key]) == 0 {
-		topic := s.topicFunc(key)
-		natsSub, err := s.sub.Subscribe(topic, s.handler)
-		if err != nil {
-			s.logger.WithField("key", key).Error("Nats subscribe error")
-			return false, fmt.Errorf("failed to subscribe to NATS: %w", err)
+		topics := s.topicsFunc(key)
+		subs := make([]*nats.Subscription, 0, len(topics))
+
+		for _, topic := range topics {
+			natsSub, err := s.sub.Subscribe(topic, s.handler)
+			if err != nil {
+				for _, sub := range subs {
+					sub.Unsubscribe()
+				}
+				s.logger.WithField("key", key).Error("Nats subscribe error")
+				return false, fmt.Errorf("failed to subscribe to NATS: %w", err)
+			}
+			subs = append(subs, natsSub)
+			s.logger.WithField("topic", topic).Debug("Subscribed to NATS")
 		}
-
-		s.logger.Debug("Created nats subscribe")
-
-		s.natsSubs[key] = natsSub
-
-		s.logger.WithField("key", key).Debug("Subscribed to NATS")
+		s.natsSubs[key] = subs
+		s.logger.WithField("key", key).Debugf("Subscribed to %d NATS topics", len(subs))
 	}
 
 	clientID := sck.ID()
@@ -89,13 +94,12 @@ func (m *SubscriptionManager[K]) RemoveClient(clientID string) {
 			delete(clients, clientID)
 			if len(clients) == 0 {
 				delete(m.subs, key)
-				if sub, ok := m.natsSubs[key]; ok {
-					if err := sub.Unsubscribe(); err != nil {
-						m.logger.WithError(err).WithField("key", key).Error("Failed to unsubscribe from NATS")
-					} else {
-						delete(m.natsSubs, key)
-						m.logger.WithField("key", key).Debug("Unsubscribed from NATS")
+				if subs, ok := m.natsSubs[key]; ok {
+					for _, sub := range subs {
+						sub.Unsubscribe()
 					}
+					delete(m.natsSubs, key)
+					m.logger.WithField("key", key).Debug("Unsubscribed from NATS")
 				}
 			}
 		}

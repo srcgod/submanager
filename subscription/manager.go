@@ -12,20 +12,14 @@ type SubscriptionManager[K comparable] struct {
 	mu         sync.RWMutex
 	subs       map[K]map[string]WSclient
 	clientSubs map[string]map[K]struct{}
-	natsSubs   map[K][]*nats.Subscription
-	sub        *Subscriber
-	topicsFunc func(K) []string
 	handler    nats.MsgHandler
 	logger     *logrus.Logger // TODO: remove logger
 }
 
-func NewSubscriptionManager[K comparable](topicsFunc func(K) []string, handler nats.MsgHandler, sub *Subscriber) *SubscriptionManager[K] {
+func NewSubscriptionManager[K comparable](handler nats.MsgHandler) *SubscriptionManager[K] {
 	return &SubscriptionManager[K]{
 		subs:       map[K]map[string]WSclient{},
 		clientSubs: make(map[string]map[K]struct{}),
-		natsSubs:   make(map[K][]*nats.Subscription),
-		sub:        sub,
-		topicsFunc: topicsFunc,
 		handler:    handler,
 		logger:     logrus.New(),
 	}
@@ -34,26 +28,6 @@ func NewSubscriptionManager[K comparable](topicsFunc func(K) []string, handler n
 func (s *SubscriptionManager[K]) AddClient(key K, sck WSclient) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if len(s.subs[key]) == 0 {
-		topics := s.topicsFunc(key)
-		subs := make([]*nats.Subscription, 0, len(topics))
-
-		for _, topic := range topics {
-			natsSub, err := s.sub.Subscribe(topic, s.handler)
-			if err != nil {
-				for _, sub := range subs {
-					sub.Unsubscribe()
-				}
-				s.logger.WithField("key", key).Error("Nats subscribe error")
-				return false, fmt.Errorf("failed to subscribe to NATS: %w", err)
-			}
-			subs = append(subs, natsSub)
-			s.logger.WithField("topic", topic).Debug("Subscribed to NATS")
-		}
-		s.natsSubs[key] = subs
-		s.logger.WithField("key", key).Debugf("Subscribed to %d NATS topics", len(subs))
-	}
 
 	clientID := sck.ID()
 	if _, ok := s.subs[key]; !ok {
@@ -94,13 +68,6 @@ func (m *SubscriptionManager[K]) RemoveClient(clientID string) {
 			delete(clients, clientID)
 			if len(clients) == 0 {
 				delete(m.subs, key)
-				if subs, ok := m.natsSubs[key]; ok {
-					for _, sub := range subs {
-						sub.Unsubscribe()
-					}
-					delete(m.natsSubs, key)
-					m.logger.WithField("key", key).Debug("Unsubscribed from NATS")
-				}
 			}
 		}
 	}

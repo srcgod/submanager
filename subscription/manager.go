@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -12,15 +11,13 @@ type SubscriptionManager[K comparable] struct {
 	mu         sync.RWMutex
 	subs       map[K]map[string]WSclient
 	clientSubs map[string]map[K]struct{}
-	handler    nats.MsgHandler
 	logger     *logrus.Logger // TODO: remove logger
 }
 
-func NewSubscriptionManager[K comparable](handler nats.MsgHandler) *SubscriptionManager[K] {
+func NewSubscriptionManager[K comparable]() *SubscriptionManager[K] {
 	return &SubscriptionManager[K]{
 		subs:       map[K]map[string]WSclient{},
 		clientSubs: make(map[string]map[K]struct{}),
-		handler:    handler,
 		logger:     logrus.New(),
 	}
 }
@@ -50,7 +47,7 @@ func (s *SubscriptionManager[K]) AddClient(key K, sck WSclient) (bool, error) {
 
 func (m *SubscriptionManager[K]) ClientSubs(key K) (map[string]WSclient, error) {
 	if _, ok := m.subs[key]; !ok {
-		return nil, fmt.Errorf("Subscriptions is empty: %w", key)
+		return nil, fmt.Errorf("Subscriptions is empty")
 	}
 	return m.subs[key], nil
 }

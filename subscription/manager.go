@@ -14,15 +14,15 @@ type SubscriptionManager[K comparable] struct {
 	clientSubs map[string]map[K]struct{} // clientID -> множество ключей
 
 	natsSubs   map[K][]*nats.Subscription // ключ -> список подписок NATS
-	sub        *Subscriber
-	topicsFunc *func(K) []string
-	handler    *nats.MsgHandler
+	sub        Subscriber
+	topicsFunc func(K) []string
+	handler    nats.MsgHandler
 	logger     *logrus.Logger
 }
 
 func NewSubscriptionManager[K comparable](
-	topicsFunc *func(K) []string,
-	handler *nats.MsgHandler,
+	topicsFunc func(K) []string,
+	handler nats.MsgHandler,
 	sub *Subscriber,
 	logger *logrus.Logger,
 ) *SubscriptionManager[K] {
@@ -32,7 +32,7 @@ func NewSubscriptionManager[K comparable](
 		logger:     logger,
 	}
 	if sub != nil && topicsFunc != nil {
-		m.sub = sub
+		m.sub = *sub
 		m.topicsFunc = topicsFunc
 		m.handler = handler
 		m.natsSubs = make(map[K][]*nats.Subscription)
@@ -59,11 +59,11 @@ func (m *SubscriptionManager[K]) AddClient(key K, client WSclient) (bool, error)
 	}
 
 	if m.natsSubs != nil && len(m.subs[key]) == 0 {
-		topics := (*m.topicsFunc)(key)
+		topics := m.topicsFunc(key)
 		subs := make([]*nats.Subscription, 0, len(topics))
 
 		for _, topic := range topics {
-			natsSub, err := m.sub.Subscribe(topic, *m.handler)
+			natsSub, err := m.sub.Subscribe(topic, m.handler)
 			if err != nil {
 				for _, s := range subs {
 					_ = s.Unsubscribe()

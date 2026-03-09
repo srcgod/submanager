@@ -13,7 +13,6 @@ func NewSubscriber(client *natsgo.NatsClient) *Subscriber {
 	return &Subscriber{client: client}
 }
 
-// Subscribe wraps underlying NATS client subscription.
 func (s *Subscriber) Subscribe(subject string, handler nats.MsgHandler) (*nats.Subscription, error) {
 	return s.client.Subscribe(subject, handler)
 }
